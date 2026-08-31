@@ -1,0 +1,240 @@
+name: Release
+
+# A manual run builds an unsigned artifact without publishing it. Pushing an
+# annotated 0.34-ja-X.Y.Z tag signs and notarizes the same Console bundle, then
+# creates the GitHub Release. Signing credentials are isolated from build code.
+on:
+  push:
+    tags:
+      - '0.34-ja-[0-9]*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Console (unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      TERM: dumb
+    steps:
+      - name: Check out source
+        # actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: pip3 install pyyaml --break-system-packages --user
+
+      - name: Show the version being built
+        shell: bash
+        run: |
+          if ! git describe --tags; then
+            echo "error: no tag is reachable from this ref." >&2
+            exit 1
+          fi
+
+      - name: Build Console app
+        shell: bash
+        working-directory: crawl-ref/source
+        run: |
+          jobs=$(sysctl -n hw.ncpu 2>/dev/null || echo 3)
+          make -j"$jobs" mac-app-console-universal
+
+      - name: Check Console app
+        shell: bash
+        run: |
+          archive=$(find crawl-ref/source/mac-app-zips \
+            -maxdepth 1 -name '*-console-macosx-universal.zip' -print -quit)
+          test -n "$archive"
+          ditto -x -k "$archive" "$RUNNER_TEMP/console-app"
+
+          app=$(find "$RUNNER_TEMP/console-app" \
+            -maxdepth 1 -name '*.app' -print -quit)
+          executable="$app/Contents/Resources/crawl"
+          test -x "$executable"
+
+          architectures=$(lipo -archs "$executable")
+          echo "architectures: $architectures"
+          [[ " $architectures " == *" arm64 "* ]]
+          [[ " $architectures " == *" x86_64 "* ]]
+          "$executable" --version
+
+      - name: Upload unsigned artifact
+        # actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: macos-console-unsigned
+          path: crawl-ref/source/mac-app-zips/*-console-macosx-universal.zip
+          if-no-files-found: error
+
+  sign:
+    name: Sign and notarize
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    environment: macos-signing
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out signing scripts
+        # actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          sparse-checkout: crawl-ref/source/mac
+          sparse-checkout-cone-mode: false
+
+      - name: Download unsigned artifact
+        # actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: macos-console-unsigned
+          path: dist
+
+      - name: Load signing credentials
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.NOTARY_PRIVATE_KEY }}
+        run: |
+          umask 077
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(uuidgen)
+
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -P -f "$RUNNER_TEMP/cert.p12"
+
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain"
+
+          identity=$(security find-identity -v -p codesigning "$keychain" \
+            | grep 'Developer ID Application' \
+            | head -1 \
+            | perl -ne 'print $1 if /"([^"]+)"/')
+          if [ -z "$identity" ]; then
+            echo "error: no Developer ID Application identity found" >&2
+            exit 1
+          fi
+
+          echo "$NOTARY_PRIVATE_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+
+      - name: Sign, notarize and repack
+        shell: bash
+        working-directory: dist
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          archive=$(find . -maxdepth 1 \
+            -name '*-console-macosx-universal.zip' -print -quit)
+          test -n "$archive"
+          ditto -x -k "$archive" app
+          bundle=$(find app -maxdepth 1 -name '*.app' -print -quit)
+          scripts="$GITHUB_WORKSPACE/crawl-ref/source/mac"
+
+          "$scripts/sign-app.sh" "$bundle"
+          "$scripts/notarize-app.sh" "$bundle"
+
+          rm -f "$archive"
+          ditto -c -k --keepParent "$bundle" "$archive"
+
+      - name: Check signed artifact
+        shell: bash
+        working-directory: dist
+        run: |
+          archive=$(find . -maxdepth 1 \
+            -name '*-console-macosx-universal.zip' -print -quit)
+          ditto -x -k "$archive" check
+          app=$(find check -maxdepth 1 -name '*.app' -print -quit)
+          codesign --verify --deep --strict "$app"
+          xcrun stapler validate "$app"
+          spctl -a -vv "$app"
+
+      - name: Check upload contents
+        shell: bash
+        working-directory: dist
+        run: |
+          found=$(find . -type f \
+            \( -name '*.p8' -o -name '*.p12' -o -name '*.pem' \
+              -o -name '*.key' -o -name 'AuthKey*' -o -name '*keychain*' \))
+          if [ -n "$found" ]; then
+            echo "error: key material found in dist:" >&2
+            echo "$found" >&2
+            exit 1
+          fi
+          if grep -rlq -- '-----BEGIN .*PRIVATE KEY-----' . 2>/dev/null; then
+            echo "error: a private key header appears under dist" >&2
+            exit 1
+          fi
+
+      - name: Upload signed artifact
+        # actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: macos-console
+          path: dist/*-console-macosx-universal.zip
+          if-no-files-found: error
+
+      - name: Destroy signing material
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" \
+            2>/dev/null || true
+          security list-keychains -d user -s login.keychain-db 2>/dev/null || true
+          rm -P -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/cert.p12" \
+            2>/dev/null || rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/cert.p12"
+
+  release:
+    name: Publish release
+    needs: sign
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed artifact
+        # actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: macos-console
+          path: dist
+
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          printf '%s\n' \
+            '## ダウンロード' \
+            '' \
+            "- \`*-console-macosx-universal.zip\` — macOSコンソール版（文字表示）" \
+            '' \
+            'Intel MacとApple Silicon Macに対応しています。' \
+            'Appleによる公証済みです。' \
+            '' \
+            '---' > notes.md
+          gh release create "$TAG" dist/*.zip \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag
