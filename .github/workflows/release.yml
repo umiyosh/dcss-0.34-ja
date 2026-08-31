@@ -69,8 +69,8 @@ jobs:
           "$executable" --version
 
       - name: Upload unsigned artifact
-        # actions/upload-artifact@v4
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        # actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-console-unsigned
           path: crawl-ref/source/mac-app-zips/*-console-macosx-universal.zip
@@ -92,8 +92,8 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Download unsigned artifact
-        # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        # actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: macos-console-unsigned
           path: dist
@@ -185,8 +185,8 @@ jobs:
           fi
 
       - name: Upload signed artifact
-        # actions/upload-artifact@v4
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        # actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-console
           path: dist/*-console-macosx-universal.zip
@@ -211,8 +211,8 @@ jobs:
       contents: write
     steps:
       - name: Download signed artifact
-        # actions/download-artifact@v4
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        # actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: macos-console
           path: dist
