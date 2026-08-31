@@ -29,15 +29,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-
-      - name: Check out bundled dependencies
-        shell: bash
-        run: |
-          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-          git submodule sync --recursive
-          git -c "http.extraheader=$auth_header" \
-            -c protocol.version=2 \
-            submodule update --init --force --recursive --depth=1
+          submodules: recursive
 
       - name: Install build dependencies
         run: pip3 install pyyaml --break-system-packages --user
