@@ -64,15 +64,35 @@ second
                 Path("fixture.txt"),
             )
 
+    def test_preserves_and_reports_duplicates_when_explicitly_allowed(self):
+        document = parse_description_text(
+            """%%%%
+same key
+
+first
+%%%%
+same key
+
+second
+%%%%
+""",
+            Path("fixture.txt"),
+            allow_duplicate_keys=True,
+        )
+
+        self.assertEqual([entry.body for entry in document.entries],
+                         ["first", "second"])
+        self.assertEqual(document.entry("same key").body, "second")
+        self.assertEqual(len(document.duplicate_keys), 1)
+        duplicate = document.duplicate_keys[0]
+        self.assertEqual((duplicate.key, duplicate.first_line, duplicate.line),
+                         ("same key", 2, 6))
+
     def test_rejects_incomplete_entries_and_malformed_delimiters(self):
         cases = {
             "missing body": (
                 "%%%%\nkey without a body\n%%%%\n",
                 r"fixture\.txt:2: entry 'key without a body' has no body",
-            ),
-            "missing opening delimiter": (
-                "key\n\nbody\n%%%%\n",
-                r"fixture\.txt:1: expected %%%% before the first key",
             ),
             "malformed delimiter": (
                 "%%%%\nkey\n\nbody\n%%%% extra\n",
@@ -84,6 +104,15 @@ second
             with self.subTest(name=name):
                 with self.assertRaisesRegex(DescriptionParseError, message):
                     parse_description_text(text, Path("fixture.txt"))
+
+    def test_accepts_first_entry_without_an_opening_delimiter(self):
+        document = parse_description_text(
+            "key\n\nbody\n%%%%\nnext key\n\nnext body\n",
+            Path("fixture.txt"),
+        )
+
+        self.assertEqual([entry.key for entry in document.entries],
+                         ["key", "next key"])
 
 
 class LoadTranslationCatalogTest(unittest.TestCase):
