@@ -4,8 +4,11 @@ from pathlib import Path
 
 from translation_review import (
     DescriptionParseError,
+    TranslationResource,
+    generate_translation_reviews,
     load_translation_catalog,
     parse_description_text,
+    render_translation_resource,
 )
 
 
@@ -155,6 +158,194 @@ class LoadTranslationCatalogTest(unittest.TestCase):
                             for resource in catalog.resources))
         self.assertEqual(catalog, load_translation_catalog(descript_dir))
         self.assertEqual(before, after)
+
+
+class RenderTranslationResourceTest(unittest.TestCase):
+    def test_renders_alias_lua_tags_multiline_and_untranslated_entries(self):
+        source = parse_description_text(
+            """# Alias heading
+%%%%
+alias key
+
+<target key>
+%%%%
+lua key
+
+:nowrap
+{{
+return "<yellow>first line</yellow>\\nsecond line"
+}}
+%%%%
+untranslated key
+
+English only
+%%%%
+""",
+            Path("source.txt"),
+        )
+        translation = parse_description_text(
+            """%%%%
+alias key
+
+<訳の参照先>
+%%%%
+lua key
+
+:nowrap
+{{
+return "<yellow>1行目</yellow>\\n2行目"
+}}
+%%%%
+""",
+            Path("ja/source.txt"),
+        )
+
+        rendered = render_translation_resource(TranslationResource(
+            name="source",
+            source=source,
+            translation=translation,
+        ))
+
+        self.assertEqual(
+            rendered,
+            """# `source.txt` 翻訳レビュー
+
+> このファイルは自動生成です。直接編集せず、英語・日本語resourceを更新してください。
+> 再生成: `python3 crawl-ref/source/util/translation_review.py`
+
+- Resource: `crawl-ref/source/dat/descript/source.txt`
+- Japanese resource: `crawl-ref/source/dat/descript/ja/source.txt`
+- Entries: 3
+- Translated: 2
+- Untranslated: 1
+
+## Entry 1
+
+- Resource: `crawl-ref/source/dat/descript/source.txt`
+- English key: `alias key`
+- English source: `crawl-ref/source/dat/descript/source.txt:3`
+- Japanese source: `crawl-ref/source/dat/descript/ja/source.txt:2`
+
+### English
+
+```text
+<target key>
+```
+
+### 日本語
+
+```text
+<訳の参照先>
+```
+
+---
+
+## Entry 2
+
+- Resource: `crawl-ref/source/dat/descript/source.txt`
+- English key: `lua key`
+- English source: `crawl-ref/source/dat/descript/source.txt:7`
+- Japanese source: `crawl-ref/source/dat/descript/ja/source.txt:6`
+
+### English
+
+```text
+:nowrap
+{{
+return "<yellow>first line</yellow>\\nsecond line"
+}}
+```
+
+### 日本語
+
+```text
+:nowrap
+{{
+return "<yellow>1行目</yellow>\\n2行目"
+}}
+```
+
+---
+
+## Entry 3
+
+- Resource: `crawl-ref/source/dat/descript/source.txt`
+- English key: `untranslated key`
+- English source: `crawl-ref/source/dat/descript/source.txt:15`
+- Japanese source: 未訳
+
+### English
+
+```text
+English only
+```
+
+### 日本語
+
+```text
+（未訳）
+```
+""",
+        )
+
+    def test_uses_only_the_runtime_effective_duplicate_source_entry(self):
+        source = parse_description_text(
+            "%%%%\nsame key\n\nold body\n%%%%\nsame key\n\ncurrent body\n",
+            Path("duplicate.txt"),
+            allow_duplicate_keys=True,
+        )
+
+        rendered = render_translation_resource(TranslationResource(
+            name="duplicate",
+            source=source,
+            translation=None,
+        ))
+
+        self.assertNotIn("old body", rendered)
+        self.assertEqual(rendered.count("- English key: `same key`"), 1)
+        self.assertIn("current body", rendered)
+        self.assertIn("- Japanese resource: なし", rendered)
+
+
+class GenerateTranslationReviewsTest(unittest.TestCase):
+    def test_writes_resource_views_and_index_deterministically(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            descript_dir = root / "descript"
+            output_dir = root / "translation-review"
+            (descript_dir / "ja").mkdir(parents=True)
+            (descript_dir / "b.txt").write_text(
+                "%%%%\nb key\n\nEnglish B\n%%%%\n", encoding="utf-8")
+            (descript_dir / "a.txt").write_text(
+                "%%%%\na key\n\nEnglish A\n%%%%\n", encoding="utf-8")
+            (descript_dir / "ja" / "a.txt").write_text(
+                "%%%%\na key\n\n日本語A\n%%%%\n", encoding="utf-8")
+
+            generated = generate_translation_reviews(
+                descript_dir,
+                output_dir,
+            )
+            first = {path.name: path.read_bytes() for path in generated}
+            generated_again = generate_translation_reviews(
+                descript_dir,
+                output_dir,
+            )
+            second = {path.name: path.read_bytes()
+                      for path in generated_again}
+
+            self.assertEqual([path.name for path in generated],
+                             ["README.md", "a.md", "b.md"])
+            self.assertEqual(first, second)
+            self.assertIn(
+                b"| [a.txt](a.md) | 1 | 1 | 0 | yes |",
+                first["README.md"],
+            )
+            self.assertIn(
+                b"| [b.txt](b.md) | 1 | 0 | 1 | no |",
+                first["README.md"],
+            )
+            self.assertIn("日本語A", first["a.md"].decode("utf-8"))
+            self.assertIn("（未訳）", first["b.md"].decode("utf-8"))
 
 
 if __name__ == "__main__":
