@@ -271,7 +271,7 @@ return "<yellow>1行目</yellow>\\n2行目"
 
 - Resource: `crawl-ref/source/dat/descript/source.txt`
 - English key: `untranslated key`
-- English source: `crawl-ref/source/dat/descript/source.txt:15`
+- English source: `crawl-ref/source/dat/descript/source.txt:14`
 - Japanese source: 未訳
 
 ### English
