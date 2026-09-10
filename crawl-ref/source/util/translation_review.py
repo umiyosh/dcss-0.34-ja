@@ -1,5 +1,7 @@
-"""Parse DCSS description resources for generated translation reviews."""
+"""Parse DCSS resources and generate deterministic translation reviews."""
 
+import argparse
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -192,3 +194,167 @@ def load_translation_catalog(descript_dir: Path) -> TranslationCatalog:
                          if translation_path.is_file() else None),
         ))
     return TranslationCatalog(resources=tuple(resources))
+
+
+def _effective_entries(document: DescriptionDocument) -> tuple[
+        DescriptionEntry, ...]:
+    """Return last-wins entries in their effective file order."""
+    last_indexes = {
+        entry.key: index for index, entry in enumerate(document.entries)
+    }
+    return tuple(
+        entry for index, entry in enumerate(document.entries)
+        if last_indexes[entry.key] == index
+    )
+
+
+def _fenced_text(text: str) -> str:
+    """Render text without interpreting DCSS tags or embedded Lua as Markdown."""
+    longest_run = max(
+        (len(match.group()) for match in re.finditer(r"`+", text)),
+        default=0,
+    )
+    fence = "`" * max(3, longest_run + 1)
+    return f"{fence}text\n{text}\n{fence}"
+
+
+def _resource_counts(resource: TranslationResource) -> tuple[int, int, int]:
+    entries = _effective_entries(resource.source)
+    translated = sum(
+        resource.translation is not None
+        and resource.translation.entry(entry.key) is not None
+        for entry in entries
+    )
+    return len(entries), translated, len(entries) - translated
+
+
+def render_translation_resource(resource: TranslationResource) -> str:
+    """Render one resource as a stable, line-addressable Markdown review."""
+    source_path = f"crawl-ref/source/dat/descript/{resource.name}.txt"
+    translation_path = (
+        f"crawl-ref/source/dat/descript/ja/{resource.name}.txt"
+    )
+    entries = _effective_entries(resource.source)
+    total, translated, untranslated = _resource_counts(resource)
+    japanese_resource = (
+        f"`{translation_path}`" if resource.translation is not None else "なし"
+    )
+    sections = [
+        f"# `{resource.name}.txt` 翻訳レビュー",
+        "",
+        "> このファイルは自動生成です。直接編集せず、英語・日本語resourceを更新してください。",
+        "> 再生成: `python3 crawl-ref/source/util/translation_review.py`",
+        "",
+        f"- Resource: `{source_path}`",
+        f"- Japanese resource: {japanese_resource}",
+        f"- Entries: {total}",
+        f"- Translated: {translated}",
+        f"- Untranslated: {untranslated}",
+    ]
+
+    for index, entry in enumerate(entries, start=1):
+        translation = (
+            resource.translation.entry(entry.key)
+            if resource.translation is not None else None
+        )
+        translation_source = (
+            f"`{translation_path}:{translation.key_line}`"
+            if translation is not None else "未訳"
+        )
+        translation_body = (
+            translation.body if translation is not None else "（未訳）"
+        )
+        if index > 1:
+            sections.extend(("", "---"))
+        sections.extend((
+            "",
+            f"## Entry {index}",
+            "",
+            f"- Resource: `{source_path}`",
+            f"- English key: `{entry.key}`",
+            f"- English source: `{source_path}:{entry.key_line}`",
+            f"- Japanese source: {translation_source}",
+            "",
+            "### English",
+            "",
+            _fenced_text(entry.body),
+            "",
+            "### 日本語",
+            "",
+            _fenced_text(translation_body),
+        ))
+
+    return "\n".join(sections) + "\n"
+
+
+def render_review_index(catalog: TranslationCatalog) -> str:
+    """Render the deterministic index for all generated resource reviews."""
+    lines = [
+        "# 翻訳レビュー用ビュー",
+        "",
+        "> このディレクトリは自動生成です。直接編集しないでください。",
+        "> 再生成: `python3 crawl-ref/source/util/translation_review.py`",
+        "",
+        "英語原文と現在の日本語訳をresource単位で並べたレビュー用ビューです。",
+        "翻訳の正本は `crawl-ref/source/dat/descript/` 以下のresourceです。",
+        "",
+        "| Resource | Entries | Translated | Untranslated | Japanese file |",
+        "|---|---:|---:|---:|:---:|",
+    ]
+    for resource in catalog.resources:
+        total, translated, untranslated = _resource_counts(resource)
+        japanese_file = "yes" if resource.translation is not None else "no"
+        lines.append(
+            f"| [{resource.name}.txt]({resource.name}.md) | {total} | "
+            f"{translated} | {untranslated} | {japanese_file} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def generate_translation_reviews(
+        descript_dir: Path,
+        output_dir: Path,
+) -> tuple[Path, ...]:
+    """Generate an index and one Markdown review for each English resource."""
+    catalog = load_translation_catalog(descript_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    generated = [output_dir / "README.md"]
+    generated[0].write_text(render_review_index(catalog), encoding="utf-8")
+    for resource in catalog.resources:
+        output_path = output_dir / f"{resource.name}.md"
+        output_path.write_text(
+            render_translation_resource(resource),
+            encoding="utf-8",
+        )
+        generated.append(output_path)
+    return tuple(generated)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Generate the repository's translation review views."""
+    repository_root = Path(__file__).resolve().parents[3]
+    parser = argparse.ArgumentParser(
+        description="Generate Markdown views for DCSS translation review.",
+    )
+    parser.add_argument(
+        "--descript-dir",
+        type=Path,
+        default=repository_root / "crawl-ref/source/dat/descript",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=repository_root / "translation-review",
+    )
+    args = parser.parse_args(argv)
+    generated = generate_translation_reviews(
+        args.descript_dir,
+        args.output_dir,
+    )
+    print(f"Generated {len(generated) - 1} resource views in "
+          f"{args.output_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
