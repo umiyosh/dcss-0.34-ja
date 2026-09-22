@@ -5,6 +5,9 @@ from pathlib import Path
 from code_message_review import (
     extract_code_messages,
     generate_code_reviews,
+    load_message_translations,
+    message_key,
+    validate_message_translation,
 )
 
 
@@ -82,8 +85,72 @@ mpr("unterminated);
         self.assertEqual(len(messages), 3)
         self.assertTrue(all(message.text is None for message in messages))
 
+    def test_translation_apis_preserve_keys_and_nested_lookup_visibility(self):
+        messages = extract_code_messages('''
+mpr(jtrans("You blink."));
+mpr(jtransf("You hit %s.", name));
+mpr("prefix " + jtrans("You move."));
+mprf("%s", jtrans("You stop.").c_str());
+''', Path("api.cc"))
+        self.assertEqual([message.text for message in messages], [
+            "You blink.", "You hit %s.", None, "You move.",
+            "%s", "You stop.",
+        ])
+        self.assertEqual([message.lookup for message in messages],
+                         [True, True, False, True, False, True])
+        self.assertTrue(messages[1].formatted)
+        self.assertFalse(messages[0].formatted)
+
+    def test_lua_format_uses_lookup_key_not_outer_dynamic_expression(self):
+        messages = extract_code_messages('''
+crawl.mpr(crawl.jtrans("You blink."))
+crawl.mpr(string.format(crawl.jtrans_format("You hit %s."), name))
+''', Path("dat/dlua/api.lua"))
+        self.assertEqual([message.text for message in messages],
+                         ["You blink.", "You hit %s."])
+        self.assertTrue(all(message.lookup for message in messages))
+        self.assertTrue(messages[1].formatted)
+
+
+class MessageDictionaryTest(unittest.TestCase):
+    def test_ignores_preamble_and_preserves_whitespace_only_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "messages.txt"
+            path.write_text("preamble\nignore me\n%%%%\n \n\n空白\n%%%%\n",
+                            encoding="utf-8")
+            self.assertEqual(load_message_translations(path),
+                             {" ": ("空白", 4)})
+
+    def test_exact_runtime_keys_and_textdb_last_wins(self):
+        self.assertEqual(message_key(" A\\B\n\t\r"), " A\\\\B\\n\\t\\r")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "messages.txt"
+            self.assertEqual(load_message_translations(path), {})
+            path.write_text(
+                "# heading\n%%%%\n A \\n\n\n最初\n%%%%\n A \\n\n\n"
+                "# comment\n最後  \n\n%%%%\n", encoding="utf-8")
+            self.assertEqual(load_message_translations(path),
+                             {" A \\n": ("最後\n", 7)})
+
+    def test_printf_contract_including_unsafe_formats(self):
+        self.assertTrue(validate_message_translation(
+            "%s hits for %04d, %.*f%%.", "%sは%04d、%.*f%%。"))
+        for original, translated in [
+                ("%s %d", "%d %s"), ("%04d", "%d"), ("%s", "%n"),
+                ("%d", "%1$d"), ("%d", "%"), ("%*3d", "%*3d"),
+                ("100%", "100%"), ("%%", "%")]:
+            with self.subTest(original=original, translated=translated):
+                self.assertFalse(validate_message_translation(original,
+                                                              translated))
+
 
 class GenerateCodeReviewsTest(unittest.TestCase):
+    def test_missing_source_directory_is_not_reported_as_empty_coverage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ValueError, "source directory"):
+                generate_code_reviews(root / "missing", root / "review")
+
     def test_deterministic_views_preserve_sources_and_link_call_sites(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -125,6 +192,43 @@ class GenerateCodeReviewsTest(unittest.TestCase):
             self.assertIn("dat/dlua/test.lua.md", index)
             self.assertIn("対象外", index)
             self.assertNotIn("Excluded.", index)
+
+    def test_dictionary_translation_is_not_confused_with_runtime_connection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            (source / "message.cc").write_text(
+                'mpr("You blink.");\nmpr(jtrans("You blink."));\n'
+                'mpr(jtrans("100% certain."));\n', encoding="utf-8")
+            dictionary = source / "dat/database/ja/messages.txt"
+            dictionary.parent.mkdir(parents=True)
+            dictionary.write_text(
+                "%%%%\nYou blink.\n\nあなたは瞬間移動した。\n"
+                "%%%%\n100% certain.\n\n100%確かだ。\n", encoding="utf-8")
+            output = root / "review"
+            generate_code_reviews(source, output)
+            view = (output / "message.cc.md").read_text(encoding="utf-8")
+            self.assertIn("訳あり・API未接続", view)
+            self.assertIn("訳あり・API接続済み", view)
+            self.assertIn("あなたは瞬間移動した。", view)
+            self.assertIn("../../crawl-ref/source/dat/database/ja/messages.txt#L2",
+                          view)
+
+    def test_incompatible_format_translation_fails_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            (source / "message.cc").write_text(
+                'mpr(jtransf("You hit %s.", name));\n', encoding="utf-8")
+            dictionary = source / "dat/database/ja/messages.txt"
+            dictionary.parent.mkdir(parents=True)
+            dictionary.write_text(
+                "%%%%\nYou hit %s.\n\nあなたは%dを攻撃した。\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError,
+                                        "incompatible translation format"):
+                generate_code_reviews(source, root / "review")
 
 
 if __name__ == "__main__":
