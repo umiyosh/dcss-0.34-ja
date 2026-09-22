@@ -231,6 +231,14 @@ def _literal(expression: list[_Token], lua: bool
              ) -> tuple[str | None, bool, bool]:
     if not expression:
         return None, False, False
+    if (lua and len(expression) >= 4
+            and [token.raw for token in expression[:4]]
+            == ["string", ".", "format", "("]):
+        arguments, closing = _arguments(expression, 3)
+        if closing == len(expression) - 1:
+            value, lookup, formatted = _literal(arguments[0], lua)
+            if lookup and formatted:
+                return value, lookup, formatted
     call = _call_at(expression, 0, lua)
     if call and call[0] in TRANSLATORS:
         arguments, closing = _arguments(expression, call[1])
@@ -249,6 +257,7 @@ def extract_code_messages(text: str, path: Path) -> tuple[CodeMessage, ...]:
     lua = path.suffix == ".lua"
     tokens = _tokens(text, lua)
     messages = []
+    covered_lookups = set()
     position = 0
     while position < len(tokens):
         call = _call_at(tokens, position, lua)
@@ -260,6 +269,9 @@ def extract_code_messages(text: str, path: Path) -> tuple[CodeMessage, ...]:
         if (not arguments or not arguments[0]
                 or arguments[0][0].raw in ("const", "msg_channel_type")):
             position = closing + 1
+            continue
+        if tokens[position].start in covered_lookups:
+            position += 1
             continue
         index = 1 if name == "simple_monster_message" else 0
         if name == "mprf" and arguments[0][0].raw.startswith("MSGCH_"):
@@ -274,6 +286,12 @@ def extract_code_messages(text: str, path: Path) -> tuple[CodeMessage, ...]:
             continue
         argument = arguments[index]
         value, lookup, formatted = _literal(argument, lua)
+        if lookup:
+            for candidate in range(len(argument)):
+                wrapped = _call_at(argument, candidate, lua)
+                if wrapped and wrapped[0] in TRANSLATORS:
+                    covered_lookups.add(argument[candidate].start)
+                    break
         if name in TRANSLATORS:
             lookup = True
         messages.append(CodeMessage(
@@ -281,7 +299,7 @@ def extract_code_messages(text: str, path: Path) -> tuple[CodeMessage, ...]:
             text[argument[0].start:argument[-1].end], value,
             lookup, formatted or name in FORMATTED,
         ))
-        position = closing + 1
+        position += 1
     return tuple(messages)
 
 
@@ -299,6 +317,7 @@ def load_message_translations(path: Path) -> dict[str, tuple[str, int]]:
     key = None
     key_line = 0
     body = []
+    in_entry = False
 
     def finish():
         if key is not None:
@@ -312,8 +331,11 @@ def load_message_translations(path: Path) -> dict[str, tuple[str, int]]:
             finish()
             key = None
             body = []
+            in_entry = True
+        elif not in_entry:
+            continue
         elif key is None:
-            if line.strip():
+            if line:
                 key, key_line = line, line_number
         else:
             body.append(line.rstrip())
@@ -414,6 +436,8 @@ def _render_file(path: Path, messages: tuple[CodeMessage, ...],
 def generate_code_reviews(source_dir: Path, output_dir: Path
                           ) -> tuple[Path, ...]:
     """Generate per-source views and an honest coverage inventory."""
+    if not source_dir.is_dir():
+        raise ValueError(f"missing source directory: {source_dir}")
     paths = set(source_dir.glob("*.cc")) | set(source_dir.glob("*.h"))
     paths.update((source_dir / "dat").rglob("*.lua"))
     translations = load_message_translations(source_dir / DICTIONARY)
