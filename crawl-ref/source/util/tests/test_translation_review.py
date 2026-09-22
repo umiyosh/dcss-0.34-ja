@@ -1,3 +1,5 @@
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +14,7 @@ from translation_review import (
     TranslationReviewVerificationError,
     generate_translation_reviews,
     load_translation_catalog,
+    main,
     parse_description_text,
     render_translation_resource,
     verify_translation_reviews,
@@ -364,6 +367,17 @@ class GenerateTranslationReviewsTest(unittest.TestCase):
 
 
 class DatabaseReviewTest(unittest.TestCase):
+    def test_textdb_preserves_indents_control_tokens_and_non_delimiters(self):
+        document = parse_description_text(
+            "preamble ignored\n%%%%\nKEY\n\n"
+            "  VISUAL:@The_monster@\t\n"
+            "  %%%%%\n #not a comment\n\n__NONE\n\n__NEXT\n",
+            Path("fixture.txt"), textdb=True,
+        )
+        self.assertEqual(document.entry("key").body,
+                         "  VISUAL:@The_monster@\n  %%%%%\n"
+                         " #not a comment\n\n__NONE\n\n__NEXT")
+
     def test_matches_textdb_delimiters_and_case_insensitive_last_wins(self):
         document = parse_description_text(
             "ignored preamble\n%%%%%\nMixed KEY\n\nold\n"
@@ -381,6 +395,11 @@ class DatabaseReviewTest(unittest.TestCase):
             "w:3\nSOUND:@The_monster@ shouts!\n\nw:1\n@_other_phrase_@",
         )
         self.assertEqual(len(document.duplicate_keys), 1)
+        rendered = render_translation_resource(TranslationResource(
+            name="monspeak", source=document, translation=None,
+            data_directory="database"))
+        self.assertNotIn("old", rendered)
+        self.assertIn("- Entries: 1", rendered)
 
     def test_loads_real_database_without_modifying_source(self):
         database_dir = Path(__file__).resolve().parents[2] / "dat/database"
@@ -447,6 +466,50 @@ class DatabaseReviewTest(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 generate_translation_reviews(
                     root, root / "out", database_dir=root / "missing")
+
+
+class CombinedReviewCommandTest(unittest.TestCase):
+    def test_command_generates_and_checks_all_three_kinds(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            descript = source / "dat/descript"
+            database = source / "dat/database"
+            output = root / "translation-review"
+            descript.mkdir(parents=True)
+            database.mkdir()
+            (descript / "example.txt").write_text(
+                "%%%%\nkey\n\nDescription\n", encoding="utf-8")
+            (database / "example.txt").write_text(
+                "%%%%\nkey\n\nSOUND:Hello\n", encoding="utf-8")
+            cpp = source / "example.cc"
+            cpp.write_text('void foo() { mpr("You blink."); }\n',
+                           encoding="utf-8")
+            args = ["--descript-dir", str(descript),
+                    "--database-dir", str(database),
+                    "--code-source-dir", str(source),
+                    "--output-dir", str(output)]
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                self.assertEqual(main(args), 0)
+                self.assertEqual(main(args + ["--check"]), 0)
+            self.assertIn("Generated 3 resource views", stdout.getvalue())
+            self.assertIn("Verified 3 resource views", stdout.getvalue())
+            self.assertTrue((output / "example.md").is_file())
+            self.assertTrue((output / "database/example.md").is_file())
+            self.assertTrue((output / "code/example.cc.md").is_file())
+            self.assertIn("code/README.md",
+                          (output / "README.md").read_text(encoding="utf-8"))
+
+            cpp.write_text('void foo() { mpr("You move."); }\n',
+                           encoding="utf-8")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as error:
+                    main(args + ["--check"])
+            self.assertEqual(error.exception.code, 1)
+            self.assertIn("code/example.cc.md", stderr.getvalue())
+            self.assertIn(REPAIR_SKILL, stderr.getvalue())
 
 
 class VerifyTranslationReviewsTest(unittest.TestCase):

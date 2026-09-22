@@ -305,8 +305,11 @@ def extract_code_messages(text: str, path: Path) -> tuple[CodeMessage, ...]:
 
 def message_key(text: str) -> str:
     """Encode the exact runtime key without case or whitespace changes."""
-    return (text.replace("\\", "\\\\").replace("\n", "\\n")
-            .replace("\r", "\\r").replace("\t", "\\t"))
+    key = (text.replace("\\", "\\\\").replace("\n", "\\n")
+           .replace("\r", "\\r").replace("\t", "\\t"))
+    if key.startswith(("#", "%%%%")) or key == "TIMESTAMP":
+        key = "\\" + key
+    return key
 
 
 def load_message_translations(path: Path) -> dict[str, tuple[str, int]]:
@@ -338,7 +341,7 @@ def load_message_translations(path: Path) -> dict[str, tuple[str, int]]:
             if line:
                 key, key_line = line, line_number
         else:
-            body.append(line.rstrip())
+            body.append(line.rstrip(" \t\r\n"))
     finish()
     return entries
 

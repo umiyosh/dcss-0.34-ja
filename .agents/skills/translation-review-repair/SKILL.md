@@ -10,8 +10,12 @@ description: >-
 
 Restore agreement between the translation resources, the deterministic
 generator, and the committed `translation-review/` views. Treat files below
-`crawl-ref/source/dat/descript/` as source data; do not hand-edit generated
-Markdown to make the check pass.
+`crawl-ref/source/dat/descript/`, `crawl-ref/source/dat/database/`, and the
+C++/Lua message call sites as source data; do not hand-edit generated Markdown
+to make the check pass. Code-message translations live in
+`crawl-ref/source/dat/database/ja/messages.txt`; dialogue views are under
+`translation-review/database/` and code-message views under
+`translation-review/code/`.
 
 ## Diagnose
 
@@ -53,7 +57,8 @@ file is unclear, stop and report the ambiguity instead of deleting it.
 ## Repair non-deterministic generation
 
 Reproduce the two-run mismatch and inspect
-`crawl-ref/source/util/translation_review.py` for unstable inputs such as
+`crawl-ref/source/util/translation_review.py` and `code_message_review.py`
+in the same directory for unstable inputs such as
 unsorted traversal, timestamps, randomness, temporary paths, locale or
 environment-dependent formatting, external data, or concurrency. Add a
 focused regression test, fix the generating logic, and regenerate the views.
@@ -64,7 +69,7 @@ Do not normalize away a meaningful source difference.
 Run the focused checks:
 
 ```sh
-PYTHONPATH=crawl-ref/source/util python3 -m unittest discover -s crawl-ref/source/util/tests -p 'test_translation_review.py'
+PYTHONPATH=crawl-ref/source/util python3 -m unittest discover -s crawl-ref/source/util/tests -p '*_review.py'
 python3 crawl-ref/source/util/translation_review.py --check
 crawl-ref/source/util/checkwhite -n crawl-ref/source/util/translation_review.py crawl-ref/source/util/tests/test_translation_review.py
 git diff HEAD --check
