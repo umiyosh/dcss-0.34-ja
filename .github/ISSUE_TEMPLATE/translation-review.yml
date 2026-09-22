@@ -1,0 +1,37 @@
+name: 翻訳レビュー指摘
+description: 翻訳レビュー用ビューで見つけた問題を報告する
+title: "[翻訳レビュー] "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        翻訳レビュー用ビューで問題のあるentryを開き、GitHubの行番号から
+        commit permalinkをコピーしてください。修正案はなくても構いません。
+
+  - type: input
+    id: permalink
+    attributes:
+      label: レビュー用ビューのcommit permalink
+      description: 対象entryのEnglish key・原文・現訳を含む固定URL
+      placeholder: https://github.com/umiyosh/dcss-0.34-ja/blob/<commit>/translation-review/<resource>.md#L1-L20
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 問題点
+      description: 誤訳、古い情報、不自然な表現、表記揺れなどを記載してください
+      placeholder: 現在の訳では原文の分岐条件が欠落しています。
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: 修正案（任意）
+      description: 具体的な訳案や参考情報があれば記載してください
+    validations:
+      required: false
