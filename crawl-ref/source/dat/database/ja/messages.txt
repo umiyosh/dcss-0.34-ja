@@ -1,0 +1,7 @@
+# Exact code-message translations. No translations have been adopted yet.
+# Each entry is: %%%% on its own line, English source key, Japanese body.
+# Keys are case-sensitive; leading/trailing spaces are significant.
+# Escape backslash, newline, carriage return and tab in keys as \\, \n, \r, \t.
+# Prefix keys starting with # or %%%% and the key TIMESTAMP with a backslash.
+# Preserve every printf token (including %%) exactly, in its original order.
+# Bodies are literal text: aliases, substitutions and Lua are not executed.

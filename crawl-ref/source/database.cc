@@ -19,6 +19,7 @@
 #include "end.h"
 #include "files.h"
 #include "libutil.h"
+#include "message-translation.h"
 #include "options.h"
 #include "random.h"
 #include "stringutil.h"
@@ -32,7 +33,8 @@ class TextDB
 public:
     // db_name is the savedir-relative name of the db file,
     // minus the "db" extension.
-    TextDB(const char* db_name, const char* dir, vector<string> files);
+    TextDB(const char* db_name, const char* dir, vector<string> files,
+           bool exact_keys = false);
     TextDB(TextDB *parent);
     ~TextDB() { shutdown(true); delete translation; }
     void init();
@@ -52,6 +54,7 @@ public:
     const char* const _db_name;
     string _directory;
     vector<string> _input_files;
+    bool _exact_keys;
     DBM* _db;
     string timestamp;
     TextDB *_parent;
@@ -62,7 +65,7 @@ public:
 
 // Convenience functions for (read-only) access to generic
 // berkeley DB databases.
-static void _store_text_db(const string &in, DBM *db);
+static void _store_text_db(const string &in, DBM *db, bool exact_keys);
 
 static string _query_database(TextDB &db, string key, bool canonicalise_key,
                               bool run_lua, bool untranslated = false);
@@ -152,6 +155,7 @@ static TextDB AllDBs[] =
     TextDB("egos", "descript/",
           { "egos.txt",     // weapon/armour/missile egos
             }),
+    TextDB("messages", "database/", { "messages.txt" }, true),
 };
 
 static TextDB& DescriptionDB = AllDBs[0];
@@ -165,6 +169,7 @@ static TextDB& HelpDB        = AllDBs[7];
 static TextDB& FAQDB         = AllDBs[8];
 static TextDB& HintsDB       = AllDBs[9];
 static TextDB& EgosDB        = AllDBs[10];
+static TextDB& MessagesDB    = AllDBs[11];
 
 static string _db_cache_path(string db, const char *lang)
 {
@@ -177,8 +182,10 @@ static string _db_cache_path(string db, const char *lang)
 // TextDB
 // ----------------------------------------------------------------------
 
-TextDB::TextDB(const char* db_name, const char* dir, vector<string> files)
+TextDB::TextDB(const char* db_name, const char* dir, vector<string> files,
+               bool exact_keys)
     : _db_name(db_name), _directory(dir), _input_files(files),
+      _exact_keys(exact_keys),
       _db(nullptr), timestamp(""), _parent(0), translation(0)
 {
 }
@@ -187,6 +194,7 @@ TextDB::TextDB(TextDB *parent)
     : _db_name(parent->_db_name),
       _directory(parent->_directory + Options.lang_name + "/"),
       _input_files(parent->_input_files), // FIXME: pointless copy
+      _exact_keys(parent->_exact_keys),
       _db(nullptr), timestamp(""), _parent(parent), translation(nullptr)
 {
 }
@@ -325,7 +333,7 @@ void TextDB::_regenerate_db()
         {
             snprintf(buf, sizeof(buf), ":%" PRId64, (int64_t)mtime);
             ts += buf;
-            _store_text_db(full_input_path, _db);
+            _store_text_db(full_input_path, _db, _exact_keys);
         }
     }
     _add_entry(_db, "TIMESTAMP", ts);
@@ -509,7 +517,7 @@ static void _add_entry(DBM *db, const string &k, string &v)
         end(1, true, "Error storing %s", k.c_str());
 }
 
-static void _parse_text_db(LineInput &inf, DBM *db)
+static void _parse_text_db(LineInput &inf, DBM *db, bool exact_keys)
 {
     string key;
     string value;
@@ -518,6 +526,12 @@ static void _parse_text_db(LineInput &inf, DBM *db)
     while (!inf.eof())
     {
         string line = inf.get_line();
+
+        // UTF8FileLineInput returns an empty sentinel after a terminal newline.
+        // Do not turn it into a second newline in the last message translation.
+        // Leave historical description/speech parsing unchanged.
+        if (exact_keys && line.empty() && inf.eof())
+            break;
 
         if (!line.empty() && line[0] == '#')
             continue;
@@ -538,8 +552,11 @@ static void _parse_text_db(LineInput &inf, DBM *db)
         if (key.empty())
         {
             key = line;
-            trim_string(key);
-            lowercase(key);
+            if (!exact_keys)
+            {
+                trim_string(key);
+                lowercase(key);
+            }
         }
         else
         {
@@ -552,13 +569,13 @@ static void _parse_text_db(LineInput &inf, DBM *db)
         _add_entry(db, key, value);
 }
 
-static void _store_text_db(const string &in, DBM *db)
+static void _store_text_db(const string &in, DBM *db, bool exact_keys)
 {
     UTF8FileLineInput inf(in.c_str());
     if (inf.error())
         end(1, true, "Unable to open input file: %s", in.c_str());
 
-    _parse_text_db(inf, db);
+    _parse_text_db(inf, db, exact_keys);
 }
 
 static string _chooseStrByWeight(const string &entry, int fixed_weight = -1)
@@ -941,4 +958,47 @@ string getHintString(const string &key)
 string getEgoString(const string &key)
 {
     return unwrap_desc(_query_database(EgosDB, key, true, true));
+}
+
+// Messages are literal text, not description aliases, substitutions or Lua.
+// Fetch directly rather than passing translations through _query_database.
+static string _translated_message(const string &source, bool formatted)
+{
+    string translation;
+    if (Options.lang_name && string(Options.lang_name) == "ja"
+        && MessagesDB.translation)
+    {
+        const datum result = _database_fetch(MessagesDB.translation->get(),
+                              message_translation::encode_key(source));
+        if (result.dsize > 0)
+        {
+            translation.assign(static_cast<const char *>(result.dptr),
+                               result.dsize);
+            // The TextDB parser appends a terminator to every physical line.
+            if (!translation.empty() && translation.back() == '\n')
+                translation.pop_back();
+        }
+    }
+    return message_translation::select(source, translation, Options.lang_name,
+                                       formatted);
+}
+
+string jtrans(const string &source)
+{
+    return _translated_message(source, false);
+}
+
+string jtrans_format(const string &source)
+{
+    return _translated_message(source, true);
+}
+
+string jtransf(const char *format, ...)
+{
+    const string translated = jtrans_format(format);
+    va_list args;
+    va_start(args, format);
+    const string result = vmake_stringf(translated.c_str(), args);
+    va_end(args);
+    return result;
 }

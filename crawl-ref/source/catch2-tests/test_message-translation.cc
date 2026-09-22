@@ -8,6 +8,10 @@ TEST_CASE("message keys preserve exact source text", "[message-translation]")
     CHECK(message_translation::encode_key(" you Blink. ") == " you Blink. ");
     CHECK(message_translation::encode_key("a\\b\nc\r\td")
           == "a\\\\b\\nc\\r\\td");
+    CHECK(message_translation::encode_key("#comment") == "\\#comment");
+    CHECK(message_translation::encode_key("%%%%entry") == "\\%%%%entry");
+    CHECK(message_translation::encode_key("TIMESTAMP") == "\\TIMESTAMP");
+    CHECK(message_translation::encode_key("\\#comment") == "\\\\#comment");
 }
 
 TEST_CASE("translated printf formats preserve the argument contract",

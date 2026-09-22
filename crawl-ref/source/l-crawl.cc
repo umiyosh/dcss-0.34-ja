@@ -10,6 +10,7 @@
 #include "chardump.h"
 #include "cluautil.h"
 #include "command.h"
+#include "database.h"
 #include "delay.h"
 #include "describe.h"
 #include "directn.h"
@@ -52,6 +53,35 @@
 //
 // User accessible (clua) functions
 //
+
+/*** Translate an exact code-message key when language is Japanese.
+ * @tparam string source English text; missing entries remain unchanged
+ * @treturn string translated text
+ * @function jtrans
+ */
+static int crawl_jtrans(lua_State *ls)
+{
+    size_t length;
+    const char *source = luaL_checklstring(ls, 1, &length);
+    const string translated = jtrans(string(source, length));
+    lua_pushlstring(ls, translated.data(), translated.size());
+    return 1;
+}
+
+/*** Translate a format string without changing its format tokens.
+ * Pass the result to string.format; do not format before this lookup.
+ * @tparam string source English format string
+ * @treturn string translated format, or English if missing or incompatible
+ * @function jtrans_format
+ */
+static int crawl_jtrans_format(lua_State *ls)
+{
+    size_t length;
+    const char *source = luaL_checklstring(ls, 1, &length);
+    const string translated = jtrans_format(string(source, length));
+    lua_pushlstring(ls, translated.data(), translated.size());
+    return 1;
+}
 
 /*** Print a message.
  * @tparam string message message to print
@@ -1501,6 +1531,8 @@ static int crawl_bane_desc(lua_State *ls)
 
 static const struct luaL_Reg crawl_clib[] =
 {
+    { "jtrans",             crawl_jtrans },
+    { "jtrans_format",      crawl_jtrans_format },
     { "mpr",                crawl_mpr },
     { "formatted_mpr",      crawl_formatted_mpr },
     { "dpr",                crawl_dpr },

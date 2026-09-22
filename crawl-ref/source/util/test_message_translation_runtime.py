@@ -54,7 +54,8 @@ def run_fixture(source: Path, executable: Path, language: str) -> None:
             )
             if result.returncode != 0:
                 raise RuntimeError(f"{language} fixture failed:\n{result.stdout}")
-        if "1 tests, 1 succeeded, 0 failed" not in result.stdout:
+        marker = f"message-translation fixture passed: {language}"
+        if marker not in result.stdout:
             raise RuntimeError(f"{language} test did not run:\n{result.stdout}")
         print(f"{language}: real TextDB lookup, Lua API and message output passed")
 
