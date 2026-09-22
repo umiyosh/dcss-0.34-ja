@@ -113,6 +113,12 @@ crawl.mpr(string.format(crawl.jtrans_format("You hit %s."), name))
 
 
 class MessageDictionaryTest(unittest.TestCase):
+    def test_escapes_textdb_syntax_and_metadata_without_collisions(self):
+        for text in ("#Heading", "%%%%Separator", "TIMESTAMP"):
+            with self.subTest(text=text):
+                self.assertEqual(message_key(text), "\\" + text)
+                self.assertNotEqual(message_key(text), message_key("\\" + text))
+
     def test_ignores_preamble_and_preserves_whitespace_only_key(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "messages.txt"
@@ -120,6 +126,13 @@ class MessageDictionaryTest(unittest.TestCase):
                             encoding="utf-8")
             self.assertEqual(load_message_translations(path),
                              {" ": ("空白", 4)})
+
+    def test_body_keeps_full_width_spaces_like_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "messages.txt"
+            path.write_text("%%%%\nKey\n\n空白　\n%%%%\n", encoding="utf-8")
+            self.assertEqual(load_message_translations(path),
+                             {"Key": ("空白　", 2)})
 
     def test_exact_runtime_keys_and_textdb_last_wins(self):
         self.assertEqual(message_key(" A\\B\n\t\r"), " A\\\\B\\n\\t\\r")
