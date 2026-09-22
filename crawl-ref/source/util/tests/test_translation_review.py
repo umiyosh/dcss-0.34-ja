@@ -1,14 +1,20 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from translation_review import (
     DescriptionParseError,
+    REGENERATION_COMMAND,
+    REPAIR_SKILL,
+    REPAIR_SKILL_PATH,
     TranslationResource,
+    TranslationReviewVerificationError,
     generate_translation_reviews,
     load_translation_catalog,
     parse_description_text,
     render_translation_resource,
+    verify_translation_reviews,
 )
 
 
@@ -346,6 +352,134 @@ class GenerateTranslationReviewsTest(unittest.TestCase):
             )
             self.assertIn("日本語A", first["a.md"].decode("utf-8"))
             self.assertIn("（未訳）", first["b.md"].decode("utf-8"))
+
+
+class VerifyTranslationReviewsTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.root = Path(self.temp_dir.name)
+        self.descript_dir = self.root / "descript"
+        self.output_dir = self.root / "translation-review"
+        (self.descript_dir / "ja").mkdir(parents=True)
+        (self.descript_dir / "source.txt").write_text(
+            "%%%%\nsource key\n\nEnglish source\n%%%%\n",
+            encoding="utf-8",
+        )
+        (self.descript_dir / "ja" / "source.txt").write_text(
+            "%%%%\nsource key\n\n日本語訳\n%%%%\n",
+            encoding="utf-8",
+        )
+        generate_translation_reviews(self.descript_dir, self.output_dir)
+
+    def test_repair_skill_is_available_at_reported_path(self):
+        repository_root = Path(__file__).resolve().parents[4]
+
+        self.assertTrue((repository_root / REPAIR_SKILL_PATH).is_file())
+
+    def test_accepts_current_views_without_modifying_them(self):
+        before = {
+            path: path.read_bytes()
+            for path in self.output_dir.iterdir()
+        }
+
+        resource_count = verify_translation_reviews(
+            self.descript_dir,
+            self.output_dir,
+        )
+
+        after = {
+            path: path.read_bytes()
+            for path in self.output_dir.iterdir()
+        }
+        self.assertEqual(resource_count, 1)
+        self.assertEqual(before, after)
+
+    def test_detects_translation_change_without_regeneration(self):
+        translation_path = self.descript_dir / "ja" / "source.txt"
+        translation_path.write_text(
+            "%%%%\nsource key\n\n更新した日本語訳\n%%%%\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(TranslationReviewVerificationError) as raised:
+            verify_translation_reviews(self.descript_dir, self.output_dir)
+
+        message = str(raised.exception)
+        self.assertIn("changed:", message)
+        self.assertIn("source.md", message)
+        self.assertIn(REGENERATION_COMMAND, message)
+        self.assertIn(REPAIR_SKILL, message)
+        self.assertIn(REPAIR_SKILL_PATH, message)
+        self.assertNotIn(
+            "更新した日本語訳",
+            (self.output_dir / "source.md").read_text(encoding="utf-8"),
+        )
+
+    def test_accepts_views_after_regeneration(self):
+        (self.descript_dir / "ja" / "source.txt").write_text(
+            "%%%%\nsource key\n\n更新した日本語訳\n%%%%\n",
+            encoding="utf-8",
+        )
+        generate_translation_reviews(self.descript_dir, self.output_dir)
+
+        self.assertEqual(
+            verify_translation_reviews(self.descript_dir, self.output_dir),
+            1,
+        )
+
+    def test_reports_stale_missing_and_unexpected_views(self):
+        (self.output_dir / "source.md").write_text(
+            "stale\n", encoding="utf-8")
+        (self.output_dir / "README.md").unlink()
+        (self.output_dir / "removed.md").write_text(
+            "unexpected\n", encoding="utf-8")
+
+        with self.assertRaises(TranslationReviewVerificationError) as raised:
+            verify_translation_reviews(self.descript_dir, self.output_dir)
+
+        message = str(raised.exception)
+        self.assertIn("missing:", message)
+        self.assertIn("README.md", message)
+        self.assertIn("changed:", message)
+        self.assertIn("source.md", message)
+        self.assertIn("unexpected:", message)
+        self.assertIn("removed.md", message)
+        self.assertIn(REGENERATION_COMMAND, message)
+        self.assertIn(REPAIR_SKILL, message)
+        self.assertIn(REPAIR_SKILL_PATH, message)
+        self.assertEqual(
+            (self.output_dir / "source.md").read_text(encoding="utf-8"),
+            "stale\n",
+        )
+
+    def test_rejects_non_deterministic_generation(self):
+        original_generate = generate_translation_reviews
+        call_count = 0
+
+        def generate_with_drift(descript_dir, output_dir):
+            nonlocal call_count
+            call_count += 1
+            generated = original_generate(descript_dir, output_dir)
+            if call_count == 2:
+                generated[0].write_text(
+                    "different\n", encoding="utf-8")
+            return generated
+
+        with patch(
+                "translation_review.generate_translation_reviews",
+                side_effect=generate_with_drift):
+            with self.assertRaises(
+                    TranslationReviewVerificationError) as raised:
+                verify_translation_reviews(
+                    self.descript_dir,
+                    self.output_dir,
+                )
+
+        message = str(raised.exception)
+        self.assertIn("non-deterministic", message)
+        self.assertIn(REPAIR_SKILL, message)
+        self.assertIn(REPAIR_SKILL_PATH, message)
 
 
 if __name__ == "__main__":
