@@ -1,0 +1,3 @@
+# Code-message originals live at the jtrans/jtransf call sites, not here.
+# This empty base file enables the normal TextDB cache and language lookup.
+# Japanese translations belong in database/ja/messages.txt.

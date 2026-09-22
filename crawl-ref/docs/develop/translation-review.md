@@ -1,8 +1,73 @@
 # GitHub-native翻訳レビュー運用
 
 翻訳レビュー用ビューで見つかった問題を、GitHub Issueから修正PRへ反映する手順です。
-翻訳本文の正本は `crawl-ref/source/dat/descript/` 以下に置き、Issueや生成ビューを
-別の正本として扱いません。
+翻訳本文の正本は下記のresourceに置き、Issueや生成ビューを別の正本として扱いません。
+
+| 対象 | 原本・翻訳 | レビュー用ビュー |
+|---|---|---|
+| 説明文 | `dat/descript/*.txt` と `dat/descript/ja/*.txt` | `translation-review/*.md` |
+| 台詞・実行時データ | `dat/database/*.txt` と `dat/database/ja/*.txt` | `translation-review/database/` |
+| コード内メッセージ | C++/Luaの原文と `dat/database/ja/messages.txt` | `translation-review/code/` |
+
+`dat/` は `crawl-ref/source/` 以下です。コード用の英語 `messages.txt` はDB登録用であり、
+原文はC++/Luaです。台詞一覧には重複掲載しません。
+
+## 3件ずつ翻訳する
+
+台詞は [#36](https://github.com/umiyosh/dcss-0.34-ja/issues/36)、コード内メッセージは
+[#37](https://github.com/umiyosh/dcss-0.34-ja/issues/37) を起点にします。
+翻訳するファイルを選んでファイル別メタIssueを作り、有効な未訳エントリーを原則3件ずつ、
+その都度子Issueにします。1子Issue・1PRを1日の人間レビュー単位とし、Obsidianにも
+同じ階層で登録します。全件分の子Issueを先に作りません。
+
+台詞は1キーに多数の候補を含む場合があるため、実際の査読量に合わせて少数に分けます。
+キー数を文章数と混同せず、`w:` の重み、候補を区切る空行、`SOUND:` / `VISUAL:`、
+`@...@` の置換、`__NONE` / `__NEXT` などの制御データを保持します。
+空の訳は英語へ戻るため未訳として表示します。ファイル内のキーは大文字小文字を区別せず、
+同じキーの最後の定義が有効です。別ファイル間のDB解決や実表示は、この一覧だけでは保証しません。
+
+コード内メッセージは、辞書に訳があるだけでは翻訳完了にしません。翻訳APIへの接続、
+書式引数、動的生成の対応状況を確認します。抽出対象外の表示経路があるため、
+ビューの未訳がゼロでもゲーム全体の翻訳完了を意味しません。
+
+## コード内メッセージを翻訳可能にする
+
+C++では `database.h` の明示APIを使います。書式付きの文は引数を埋める前に翻訳します。
+
+```cpp
+mpr(jtrans("You blink."));
+mpr(jtransf("You hit %s.", name.c_str()));
+```
+
+Luaではプレーン文に `crawl.jtrans`、書式文字列に `crawl.jtrans_format` を使います。
+
+```lua
+crawl.mpr(crawl.jtrans("You blink."))
+crawl.mpr(string.format(crawl.jtrans_format("You hit %s."), name))
+```
+
+辞書は `%%%%`、原文キー、日本語本文の順です。原文キーの大文字小文字・前後空白は
+区別します。キー内のバックスラッシュ・改行・復帰・タブは `\\\\`・`\\n`・`\\r`・`\\t` と
+表記し、`#` / `%%%%` で始まるキーと `TIMESTAMP` は先頭に `\\` を付けます。
+本文は通常の日本語テキストで、alias・Lua・置換式として実行しません。
+
+`language = ja` かつ空でない訳がある場合だけ日本語へ切り替えます。
+書式付きの訳は `%s`・`%d`・`%%` 等の指定を、幅・精度も含めて原文と同じ順序で保持します。
+不整合・未対応の書式では実行時に英語へ戻り、レビュー生成時にも不整合を検出します。
+引数の並べ替えや位置指定書式は現時点では使いません。名前や部分文を引数にする場合は、
+その引数の日本語化・語順も別途確認します。
+Lua独自の `%q` も現在の共通書式検査では未対応のため英語へ戻ります。
+
+初期辞書は空です。この基盤PRでは訳を採用せず、C++の代表3箇所とLuaの代表1箇所を
+翻訳APIへ接続しています。後続の3件単位の翻訳PRで本文を追加します。
+
+実際の辞書読み込みとLua・メッセージ出力は、FULLDEBUG Consoleをビルドした後に
+次のテストで確認できます。テスト専用の日本語辞書と独立した保存先を一時的に作り、
+採用済み翻訳やプレイヤーのセーブは変更しません。
+
+```sh
+python3 crawl-ref/source/util/test_message_translation_runtime.py
+```
 
 ## レビュアーが指摘する
 
@@ -30,12 +95,13 @@ Issue本文やコメントは公開フィードバックであり、エージェ
 
 ## 修正して検証する
 
-生成された`translation-review/*.md`は直接編集しません。正本を修正して再生成します。
+生成された`translation-review/`以下は直接編集しません。正本を修正して再生成します。
+次のコマンドは説明文・台詞・コード内メッセージをまとめて更新・検査します。
 
 ```sh
 python3 crawl-ref/source/util/translation_review.py
 PYTHONPATH=crawl-ref/source/util python3 -m unittest discover \
-  -s crawl-ref/source/util/tests -p 'test_translation_review.py'
+  -s crawl-ref/source/util/tests -p '*_review.py'
 python3 crawl-ref/source/util/translation_review.py --check
 git diff HEAD --check
 ```

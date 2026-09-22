@@ -5,6 +5,8 @@
 
 #include "AppHdr.h"
 
+#include "database.h"
+
 #include "message.h"
 
 #include <sstream>
@@ -2027,7 +2029,7 @@ void canned_msg(canned_message_type which_message)
             break;
         }
         case MSG_YOU_BLINK:
-            mpr("You blink.");
+            mpr(jtrans("You blink."));
             break;
         case MSG_STRANGE_STASIS:
             mpr("You feel a strange sense of stasis.");
@@ -2048,7 +2050,7 @@ void canned_msg(canned_message_type which_message)
             mpr("You detect nothing.");
             break;
         case MSG_CANNOT_MOVE:
-            mpr("You cannot move.");
+            mpr(jtrans("You cannot move."));
             break;
         case MSG_YOU_DIE:
             mpr_nojoin(MSGCH_PLAIN, "You die...");
@@ -2063,7 +2065,7 @@ void canned_msg(canned_message_type which_message)
             mpr("Your reserves of magic are already full.");
             break;
         case MSG_GAIN_HEALTH:
-            mpr("You feel better.");
+            mpr(jtrans("You feel better."));
             break;
         case MSG_GAIN_MAGIC:
             mpr("You feel your power returning.");

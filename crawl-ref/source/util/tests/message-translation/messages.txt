@@ -1,0 +1,38 @@
+# Synthetic translations used only in an isolated test data directory.
+%%%%
+You blink.
+試験用：瞬間移動した。
+%%%%
+Case Key
+大文字のキー
+%%%%
+case key
+小文字のキー
+%%%%
+ Exact key with spaces.@TRAILING_SPACE@
+空白付きのキー
+%%%%
+line one\nline two
+一行目
+二行目
+%%%%
+Fixture %s: %d%%
+試験%s：%d%%
+%%%%
+Unsafe %s
+不正%d
+%%%%
+\#literal
+コメントではない
+%%%%
+\%%%%literal
+区切りではない
+%%%%
+\TIMESTAMP
+メタデータではない
+%%%%
+Literal alias
+<case key>
+%%%%
+Literal Lua
+{{error("must not execute")}}

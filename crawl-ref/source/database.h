@@ -51,6 +51,12 @@ string getMiscString(const string &misc, const string &suffix = "");
 string getHintString(const string &key);
 string getEgoString(const string &key);
 
+// Explicit code-message translation. Missing Japanese entries fall back to
+// the exact English source. jtransf retains compile-time printf checking.
+string jtrans(const string &source);
+string jtrans_format(const string &source);
+string jtransf(PRINTF(0, ));
+
 vector<string> getAllFAQKeys();
 string getFAQ_Question(const string &key);
 string getFAQ_Answer(const string &question);
