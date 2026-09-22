@@ -1,3 +1,5 @@
+import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -158,6 +160,27 @@ class MessageDictionaryTest(unittest.TestCase):
 
 
 class GenerateCodeReviewsTest(unittest.TestCase):
+    def test_trailing_whitespace_is_lossless_without_markdown_space_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            original = ('mpr("You ");\n'
+                        'mpr("一行 \\nnext\\t");\n'
+                        'mpr("You blink.");\n')
+            cpp = source / "message.cc"
+            cpp.write_text(original, encoding="utf-8")
+            output = root / "review"
+            generate_code_reviews(source, output)
+            view = (output / "message.cc.md").read_text(encoding="utf-8")
+            quoted = re.findall(r"```json\n(.*?)\n```", view, re.DOTALL)
+            self.assertEqual([json.loads(value) for value in quoted],
+                             ["You ", "一行 \nnext\t"])
+            self.assertIn("```text\nYou blink.\n```", view)
+            self.assertTrue(all(line == line.rstrip(" \t")
+                                for line in view.splitlines()))
+            self.assertEqual(cpp.read_text(encoding="utf-8"), original)
+
     def test_missing_source_directory_is_not_reported_as_empty_coverage(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
