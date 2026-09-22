@@ -131,11 +131,12 @@ Snake Pit or the Spider Nest, and to the Pits of Slime.
 ### 日本語
 
 ```text
-多くの冒険者は周囲の環境の急激な変化にそこが獣の巣窟であることに気づくだろう。
-事実、ここには利器を扱うのではなく、牙をつきたて、爪で切り裂き、
-獲物を食い散らかす何者かがいる。
+多くの冒険者は、獣の棲み処での気候の変化を心躍るものと感じる。
+たしかに、斬られ、焼かれ、刺される代わりに、角で突かれ、爪で引き裂かれ、
+食われるというのも一興だ。
 
-獣の棲み処は8の階層からなる。獣の棲み処は3つの分岐と繋がっている。
+獣の棲み処には、沼か浅瀬のどちらか一方、蛇穴か蜘蛛の巣のどちらか一方、
+そしてスライムの穴ぐらへ通じる入口がある。
 ```
 
 ---
@@ -696,7 +697,7 @@ stolen possessions are sealed away in these realms of reconciliation.
 - Resource: `crawl-ref/source/dat/descript/branches.txt`
 - English key: `Sewer`
 - English source: `crawl-ref/source/dat/descript/branches.txt:234`
-- Japanese source: `crawl-ref/source/dat/descript/ja/branches.txt:18`
+- Japanese source: `crawl-ref/source/dat/descript/ja/branches.txt:19`
 
 ### English
 
@@ -802,7 +803,7 @@ centuries of slow melting and refreezing.
 - Resource: `crawl-ref/source/dat/descript/branches.txt`
 - English key: `Volcano`
 - English source: `crawl-ref/source/dat/descript/branches.txt:266`
-- Japanese source: `crawl-ref/source/dat/descript/ja/branches.txt:28`
+- Japanese source: `crawl-ref/source/dat/descript/ja/branches.txt:29`
 
 ### English
 
