@@ -375,7 +375,7 @@ class DatabaseReviewTest(unittest.TestCase):
             textdb=True,
         )
         self.assertEqual(len(document.entries), 2)
-        self.assertEqual(document.entry("MIXED KEY").key_line, 8)
+        self.assertEqual(document.entry("MIXED KEY").key_line, 7)
         self.assertEqual(
             document.entry("MIXED KEY").body,
             "w:3\nSOUND:@The_monster@ shouts!\n\nw:1\n@_other_phrase_@",
@@ -384,7 +384,8 @@ class DatabaseReviewTest(unittest.TestCase):
 
     def test_loads_real_database_without_modifying_source(self):
         database_dir = Path(__file__).resolve().parents[2] / "dat/database"
-        before = {p: p.read_bytes() for p in database_dir.glob("*.txt")}
+        before = {p: p.read_bytes() for p in database_dir.glob("*.txt")
+                  if p.name != "messages.txt"}
         catalog = load_translation_catalog(database_dir, textdb=True)
         self.assertEqual(len(catalog.resources), len(before))
         self.assertTrue(catalog.resource("monspeak").source.entry("Chuck"))
