@@ -10,6 +10,10 @@ from pathlib import Path
 REGENERATION_COMMAND = (
     "python3 crawl-ref/source/util/translation_review.py"
 )
+REPAIR_SKILL = "$translation-review-repair"
+REPAIR_SKILL_PATH = (
+    ".agents/skills/translation-review-repair/SKILL.md"
+)
 
 
 class DescriptionParseError(ValueError):
@@ -390,7 +394,10 @@ def _verification_error(
     return TranslationReviewVerificationError(
         f"{title}\n"
         f"Differing files:\n{details}\n"
-        f"Regenerate with: {REGENERATION_COMMAND}"
+        f"Regenerate with: {REGENERATION_COMMAND}\n"
+        f"To repair with a local coding agent, ask it to use "
+        f"{REPAIR_SKILL}.\n"
+        f"Skill instructions: {REPAIR_SKILL_PATH}"
     )
 
 

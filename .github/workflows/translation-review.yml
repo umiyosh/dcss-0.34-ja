@@ -5,6 +5,7 @@ on:
     branches:
       - develop
     paths:
+      - .agents/skills/translation-review-repair/**
       - .github/workflows/translation-review.yml
       - crawl-ref/source/dat/descript/**
       - crawl-ref/source/util/translation_review.py
@@ -14,6 +15,7 @@ on:
     branches:
       - develop
     paths:
+      - .agents/skills/translation-review-repair/**
       - .github/workflows/translation-review.yml
       - crawl-ref/source/dat/descript/**
       - crawl-ref/source/util/translation_review.py

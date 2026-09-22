@@ -6,6 +6,8 @@ from unittest.mock import patch
 from translation_review import (
     DescriptionParseError,
     REGENERATION_COMMAND,
+    REPAIR_SKILL,
+    REPAIR_SKILL_PATH,
     TranslationResource,
     TranslationReviewVerificationError,
     generate_translation_reviews,
@@ -370,6 +372,11 @@ class VerifyTranslationReviewsTest(unittest.TestCase):
         )
         generate_translation_reviews(self.descript_dir, self.output_dir)
 
+    def test_repair_skill_is_available_at_reported_path(self):
+        repository_root = Path(__file__).resolve().parents[4]
+
+        self.assertTrue((repository_root / REPAIR_SKILL_PATH).is_file())
+
     def test_accepts_current_views_without_modifying_them(self):
         before = {
             path: path.read_bytes()
@@ -402,6 +409,8 @@ class VerifyTranslationReviewsTest(unittest.TestCase):
         self.assertIn("changed:", message)
         self.assertIn("source.md", message)
         self.assertIn(REGENERATION_COMMAND, message)
+        self.assertIn(REPAIR_SKILL, message)
+        self.assertIn(REPAIR_SKILL_PATH, message)
         self.assertNotIn(
             "更新した日本語訳",
             (self.output_dir / "source.md").read_text(encoding="utf-8"),
@@ -437,6 +446,8 @@ class VerifyTranslationReviewsTest(unittest.TestCase):
         self.assertIn("unexpected:", message)
         self.assertIn("removed.md", message)
         self.assertIn(REGENERATION_COMMAND, message)
+        self.assertIn(REPAIR_SKILL, message)
+        self.assertIn(REPAIR_SKILL_PATH, message)
         self.assertEqual(
             (self.output_dir / "source.md").read_text(encoding="utf-8"),
             "stale\n",
@@ -458,13 +469,17 @@ class VerifyTranslationReviewsTest(unittest.TestCase):
         with patch(
                 "translation_review.generate_translation_reviews",
                 side_effect=generate_with_drift):
-            with self.assertRaisesRegex(
-                    TranslationReviewVerificationError,
-                    "non-deterministic"):
+            with self.assertRaises(
+                    TranslationReviewVerificationError) as raised:
                 verify_translation_reviews(
                     self.descript_dir,
                     self.output_dir,
                 )
+
+        message = str(raised.exception)
+        self.assertIn("non-deterministic", message)
+        self.assertIn(REPAIR_SKILL, message)
+        self.assertIn(REPAIR_SKILL_PATH, message)
 
 
 if __name__ == "__main__":
