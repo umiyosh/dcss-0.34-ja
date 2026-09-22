@@ -338,6 +338,7 @@ class GenerateTranslationReviewsTest(unittest.TestCase):
             )
             second = {path.name: path.read_bytes()
                       for path in generated_again}
+            index = first["README.md"].decode("utf-8")
 
             self.assertEqual([path.name for path in generated],
                              ["README.md", "a.md", "b.md"])
@@ -349,6 +350,14 @@ class GenerateTranslationReviewsTest(unittest.TestCase):
             self.assertIn(
                 b"| [b.txt](b.md) | 1 | 0 | 1 | no |",
                 first["README.md"],
+            )
+            self.assertIn(
+                "[GitHub-native翻訳レビュー運用]",
+                index,
+            )
+            self.assertIn(
+                "issues/new?template=translation-review.yml",
+                index,
             )
             self.assertIn("日本語A", first["a.md"].decode("utf-8"))
             self.assertIn("（未訳）", first["b.md"].decode("utf-8"))

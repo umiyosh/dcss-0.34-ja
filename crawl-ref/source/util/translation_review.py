@@ -308,6 +308,11 @@ def render_review_index(catalog: TranslationCatalog) -> str:
         "",
         "> このディレクトリは自動生成です。直接編集しないでください。",
         "> 再生成: `python3 crawl-ref/source/util/translation_review.py`",
+        "> 指摘方法: [GitHub-native翻訳レビュー運用]"
+        "(../crawl-ref/docs/develop/translation-review.md)",
+        "> [翻訳の問題を報告]"
+        "(https://github.com/umiyosh/dcss-0.34-ja/issues/new?"
+        "template=translation-review.yml)",
         "",
         "英語原文と現在の日本語訳をresource単位で並べたレビュー用ビューです。",
         "翻訳の正本は `crawl-ref/source/dat/descript/` 以下のresourceです。",
