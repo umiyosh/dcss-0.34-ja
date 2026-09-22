@@ -363,6 +363,91 @@ class GenerateTranslationReviewsTest(unittest.TestCase):
             self.assertIn("（未訳）", first["b.md"].decode("utf-8"))
 
 
+class DatabaseReviewTest(unittest.TestCase):
+    def test_matches_textdb_delimiters_and_case_insensitive_last_wins(self):
+        document = parse_description_text(
+            "ignored preamble\n%%%%%\nMixed KEY\n\nold\n"
+            "%%%% trailing text\nmixed key\n\n"
+            "# ignored comment\nw:3\nSOUND:@The_monster@ shouts!\n\n"
+            "w:1\n@_other_phrase_@\n",
+            Path("monspeak.txt"),
+            allow_duplicate_keys=True,
+            textdb=True,
+        )
+        self.assertEqual(len(document.entries), 2)
+        self.assertEqual(document.entry("MIXED KEY").key_line, 8)
+        self.assertEqual(
+            document.entry("MIXED KEY").body,
+            "w:3\nSOUND:@The_monster@ shouts!\n\nw:1\n@_other_phrase_@",
+        )
+        self.assertEqual(len(document.duplicate_keys), 1)
+
+    def test_loads_real_database_without_modifying_source(self):
+        database_dir = Path(__file__).resolve().parents[2] / "dat/database"
+        before = {p: p.read_bytes() for p in database_dir.glob("*.txt")}
+        catalog = load_translation_catalog(database_dir, textdb=True)
+        self.assertEqual(len(catalog.resources), len(before))
+        self.assertTrue(catalog.resource("monspeak").source.entry("Chuck"))
+        self.assertTrue(all(r.data_directory == "database"
+                            for r in catalog.resources))
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    def test_combines_catalogs_and_checks_nested_translation_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            descript = root / "descript"
+            database = root / "database"
+            output = root / "translation-review"
+            descript.mkdir()
+            (database / "ja").mkdir(parents=True)
+            (descript / "source.txt").write_text(
+                "%%%%\ndescription\n\nDescription\n", encoding="utf-8")
+            (database / "source.txt").write_text(
+                "%%%%%\nKey\n\nSOUND:English\n%%%%\nmissing\n\nOther\n",
+                encoding="utf-8")
+            japanese = database / "ja/source.txt"
+            japanese.write_text(
+                "%%%%\nKEY\n\nSOUND:日本語\n%%%%\nmissing\n",
+                encoding="utf-8")
+
+            generated = generate_translation_reviews(
+                descript, output, database_dir=database)
+            first = {p.relative_to(output): p.read_bytes() for p in generated}
+            self.assertEqual(verify_translation_reviews(
+                descript, output, database_dir=database), 2)
+            self.assertTrue((output / "source.md").is_file())
+            review = (output / "database/source.md").read_text(encoding="utf-8")
+            self.assertIn("SOUND:日本語", review)
+            self.assertIn("- Untranslated: 1", review)
+            self.assertIn("../../crawl-ref/source/dat/database/source.txt#L2",
+                          review)
+            self.assertIn("../../crawl-ref/source/dat/database/ja/source.txt#L2",
+                          review)
+            self.assertIn("database/README.md",
+                          (output / "README.md").read_text(encoding="utf-8"))
+            self.assertIn("../../crawl-ref/docs/develop/translation-review.md",
+                          (output / "database/README.md").read_text(
+                              encoding="utf-8"))
+            generate_translation_reviews(descript, output, database_dir=database)
+            self.assertEqual(first, {p.relative_to(output): p.read_bytes()
+                                     for p in generated})
+
+            japanese.write_text("%%%%\nKEY\n\n更新訳\n", encoding="utf-8")
+            with self.assertRaises(TranslationReviewVerificationError) as error:
+                verify_translation_reviews(descript, output, database_dir=database)
+            self.assertIn("database/source.md", str(error.exception))
+            self.assertIn(REPAIR_SKILL, str(error.exception))
+            self.assertEqual(first, {p.relative_to(output): p.read_bytes()
+                                     for p in generated})
+
+    def test_explicit_missing_database_is_not_silently_ignored(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with self.assertRaises(FileNotFoundError):
+                generate_translation_reviews(
+                    root, root / "out", database_dir=root / "missing")
+
+
 class VerifyTranslationReviewsTest(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
