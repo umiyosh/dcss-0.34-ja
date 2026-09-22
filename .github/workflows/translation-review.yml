@@ -1,0 +1,47 @@
+name: Translation review
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/translation-review.yml
+      - crawl-ref/source/dat/descript/**
+      - crawl-ref/source/util/translation_review.py
+      - crawl-ref/source/util/tests/test_translation_review.py
+      - translation-review/**
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/translation-review.yml
+      - crawl-ref/source/dat/descript/**
+      - crawl-ref/source/util/translation_review.py
+      - crawl-ref/source/util/tests/test_translation_review.py
+      - translation-review/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify generated views
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        # actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Test parser and generator
+        env:
+          PYTHONPATH: crawl-ref/source/util
+        run: >-
+          python3 -m unittest discover
+          -s crawl-ref/source/util/tests
+          -p 'test_translation_review.py'
+
+      - name: Verify committed review views
+        run: >-
+          python3 crawl-ref/source/util/translation_review.py --check

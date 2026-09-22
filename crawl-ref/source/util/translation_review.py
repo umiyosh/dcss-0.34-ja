@@ -2,12 +2,22 @@
 
 import argparse
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 
+REGENERATION_COMMAND = (
+    "python3 crawl-ref/source/util/translation_review.py"
+)
+
+
 class DescriptionParseError(ValueError):
     """Raised when a description resource does not follow the text format."""
+
+
+class TranslationReviewVerificationError(RuntimeError):
+    """Raised when committed translation reviews are not reproducible."""
 
 
 @dataclass(frozen=True)
@@ -330,6 +340,93 @@ def generate_translation_reviews(
     return tuple(generated)
 
 
+def _output_snapshot(output_dir: Path) -> dict[str, bytes]:
+    """Return all generated files below an output directory."""
+    if not output_dir.is_dir():
+        return {}
+    return {
+        path.relative_to(output_dir).as_posix(): path.read_bytes()
+        for path in sorted(output_dir.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _snapshot_differences(
+        expected: dict[str, bytes],
+        actual: dict[str, bytes],
+) -> tuple[tuple[str, str], ...]:
+    """Describe missing, unexpected, and changed generated files."""
+    differences = []
+    for path in sorted(expected.keys() | actual.keys()):
+        if path not in actual:
+            kind = "missing"
+        elif path not in expected:
+            kind = "unexpected"
+        elif expected[path] != actual[path]:
+            kind = "changed"
+        else:
+            continue
+        differences.append((kind, path))
+    return tuple(differences)
+
+
+def _display_output_path(output_dir: Path, relative_path: str) -> str:
+    path = (output_dir / relative_path).resolve()
+    try:
+        return path.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _verification_error(
+        title: str,
+        differences: tuple[tuple[str, str], ...],
+        output_dir: Path,
+) -> TranslationReviewVerificationError:
+    details = "\n".join(
+        f"  - {kind}: {_display_output_path(output_dir, path)}"
+        for kind, path in differences
+    )
+    return TranslationReviewVerificationError(
+        f"{title}\n"
+        f"Differing files:\n{details}\n"
+        f"Regenerate with: {REGENERATION_COMMAND}"
+    )
+
+
+def verify_translation_reviews(
+        descript_dir: Path,
+        output_dir: Path,
+) -> int:
+    """Verify committed reviews match two independent generations."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        first_dir = temp_root / "first"
+        second_dir = temp_root / "second"
+        generate_translation_reviews(descript_dir, first_dir)
+        generate_translation_reviews(descript_dir, second_dir)
+        first = _output_snapshot(first_dir)
+        second = _output_snapshot(second_dir)
+
+        nondeterministic = _snapshot_differences(first, second)
+        if nondeterministic:
+            raise _verification_error(
+                "Translation review generation is non-deterministic.",
+                nondeterministic,
+                output_dir,
+            )
+
+        committed = _output_snapshot(output_dir)
+        stale = _snapshot_differences(first, committed)
+        if stale:
+            raise _verification_error(
+                "Committed translation review views are not current.",
+                stale,
+                output_dir,
+            )
+        return max(len(first) - 1, 0)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate the repository's translation review views."""
     repository_root = Path(__file__).resolve().parents[3]
@@ -346,7 +443,23 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=repository_root / "translation-review",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify committed views without modifying them",
+    )
     args = parser.parse_args(argv)
+    if args.check:
+        try:
+            resource_count = verify_translation_reviews(
+                args.descript_dir,
+                args.output_dir,
+            )
+        except TranslationReviewVerificationError as error:
+            parser.exit(1, f"{error}\n")
+        print(f"Verified {resource_count} resource views in "
+              f"{args.output_dir}")
+        return 0
     generated = generate_translation_reviews(
         args.descript_dir,
         args.output_dir,
