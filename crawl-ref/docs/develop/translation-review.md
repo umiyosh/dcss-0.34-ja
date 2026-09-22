@@ -56,3 +56,18 @@ English key、`%%%%`、alias、Lua、タグ、書式指定子、改行の意味�
 
 独自のreview status、approval DB、翻訳本文の複製は作りません。GitHub上のIssue、PR、
 Review、mergeを運用履歴の正本にします。
+
+## 代表entryでの試行
+
+`Lair`の旧い日本語訳を使い、一連の運用を試しました。
+
+1. merge済みcommitの[レビュー用ビュー](https://github.com/umiyosh/dcss-0.34-ja/blob/170537304e2f9bcd3f1ce8f6dec80c1989812fca/translation-review/branches.md#L113-L140)
+   から、旧版の階層数と現行分岐条件の欠落を特定しました。
+2. 修正案を入力せず、permalinkと問題点だけで
+   [Issue #12](https://github.com/umiyosh/dcss-0.34-ja/issues/12)を作成しました。
+3. 最新の`develop`で行番号ではなくEnglish key `Lair`を再特定しました。
+4. 正本を修正してビューを再生成し、[PR #13](https://github.com/umiyosh/dcss-0.34-ja/pull/13)
+   でIssueへ関連付けました。
+
+この試行では、Issue formがまだdefault branchにないため、同じ必須項目をGitHub CLIから
+送信しました。フォーム画面の表示確認は、この運用変更をmergeした後に行います。
