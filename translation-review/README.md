@@ -8,6 +8,14 @@
 英語原文と現在の日本語訳をresource単位で並べたレビュー用ビューです。
 翻訳の正本は `crawl-ref/source/dat/descript/` 以下のresourceです。
 
+## 対象別の入口
+
+- [台詞・実行時データ](database/README.md)
+- [コード内メッセージ](code/README.md)
+
+## 説明文
+
+
 | Resource | Entries | Translated | Untranslated | Japanese file |
 |---|---:|---:|---:|:---:|
 | [ability.txt](ability.md) | 154 | 36 | 118 | yes |

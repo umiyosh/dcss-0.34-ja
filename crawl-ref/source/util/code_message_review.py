@@ -5,6 +5,7 @@ expressions remain visible for a human to investigate; they never become
 partial translation keys.
 """
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -368,6 +369,9 @@ def validate_message_translation(original: str, translation: str) -> bool:
 
 
 def _fence(text: str, language: str = "text") -> str:
+    if any(line.endswith((" ", "\t")) for line in text.splitlines()):
+        text = json.dumps(text, ensure_ascii=False)
+        language = "json"
     runs = [len(match[0]) for match in re.finditer(r"`+", text)]
     fence = "`" * max(3, max(runs, default=0) + 1)
     return f"{fence}{language}\n{text}\n{fence}"
@@ -460,6 +464,10 @@ def generate_code_reviews(source_dir: Path, output_dir: Path
     lines = [
         "# コード内メッセージの翻訳レビュー", "",
         "[翻訳レビュー入口](../README.md)", "",
+        "[指摘方法](../../crawl-ref/docs/develop/translation-review.md) / "
+        "[翻訳の問題を報告]"
+        "(https://github.com/umiyosh/dcss-0.34-ja/issues/new?"
+        "template=translation-review.yml)", "",
         "原本からの自動生成。1ファイルをメタIssueとし、到達性・表示経路を"
         "確認した未訳3エントリーずつを子Issue・PRにする。", "",
         f"認識した呼出 {len(all_messages)} / 静的キー {static} / "
@@ -484,6 +492,8 @@ def generate_code_reviews(source_dir: Path, output_dir: Path
         "API接続済みでも人間の採用・実表示確認は別途必要。",
         "- 辞書は `crawl-ref/source/dat/database/ja/messages.txt`。"
         "原文キーは大文字小文字・前後空白を維持し、改行等をescapeする。",
+        "- 行末空白を含む値は、空白を失わないJSON表記で表示する。"
+        "通常の文はtext表記とし、原本・翻訳キーは変更しない。",
         "- 再生成: `python3 crawl-ref/source/util/translation_review.py`。", "",
         "## ファイル別", "",
         "| 原本 | 静的キー | 動的・未対応式 | 翻訳API参照 |",
